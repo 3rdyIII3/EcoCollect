@@ -1,0 +1,37 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build output
+dist/
+.vercel/
+*.tsbuildinfo
+
+# Environment - never commit these
+.env
+.env.local
+.env.*.local
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+logs/
+*.log
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Local database dumps
+db/*.local.sql
+
+# Local PGlite dev database and screenshot artefacts
+.pglite/
+.screenshots/
+
+# Local demo env
+.env.local
