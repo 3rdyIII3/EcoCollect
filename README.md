@@ -19,10 +19,11 @@ Ported and working:
 | Collections | List, filters, pagination, create, delete |
 | Barangays | List, create, edit, view, deactivate/reactivate |
 
-Not ported yet (the sidebar shows these as locked links, and each route renders a
-placeholder explaining what it needs): Collectors, Users, Schedules, QR Scanner,
-QR Codes, Dumping Reports, Notifications actions, Settings, Rankings. See
-"Remaining work" below.
+Not ported yet, and deliberately absent from the navigation rather than shown as
+locked links: Collectors, Users, Schedules, QR Scanner, QR Codes, Dumping Reports,
+Notifications actions, Settings, Analytics, Rankings. A sidebar full of dead links to
+placeholder pages reads as a broken app, and each one only ever led to another page
+saying the same thing. See "Remaining work" below.
 
 ---
 
