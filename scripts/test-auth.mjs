@@ -30,20 +30,20 @@ const captcha = await import('../api/_lib/captcha.js');
 /* The arithmetic challenge is a speed bump, so the properties worth pinning are that
    the answer is not derivable from the question, that verification is exact, and that
    an old token stops working. */
+// NB: check() takes (label, got, want) and compares with ===, so boolean assertions
+// pass true as `want` and put the diagnostic detail in a trailing comment - not in the
+// third slot, which would be compared against.
 const challenge = captcha.newChallenge();
-check('question is a readable expression', /^(\d+ [+\u2212] \d+)$/.test(challenge.question), challenge.question);
-check('answer is a small integer', /^\d{1,2}$/.test(challenge.answer), challenge.answer);
-check('answer is not stated in the question', !challenge.question.includes(challenge.answer), challenge.question);
+check('question is a readable expression', /^(\d+ [+\u2212] \d+)$/.test(challenge.question), true);
+check('answer is a small integer', /^\d{1,2}$/.test(challenge.answer), true);
+check('answer is not stated in the question', !challenge.question.includes(challenge.answer), true);
 
 // Subtraction never yields a negative answer, or a human would be asked for one.
+let sawNegative = false;
 for (let i = 0; i < 60; i += 1) {
-  const c = captcha.newChallenge();
-  if (Number(c.answer) < 0) {
-    check('answers are never negative', false, c.question);
-    break;
-  }
+  if (Number(captcha.newChallenge().answer) < 0) sawNegative = true;
 }
-check('answers are never negative', true, true);
+check('answers are never negative', sawNegative, false);
 
 const capToken = captcha.issueToken(challenge.answer);
 check('correct answer verifies', captcha.verifyAnswer(capToken, challenge.answer), true);

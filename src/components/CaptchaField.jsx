@@ -25,14 +25,19 @@ export default function CaptchaField({ value, onChange, reloadKey = 0 }) {
         credentials: 'same-origin',
         cache: 'no-store',
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) {
+        // Read the body before giving up. The server masks 500s in production but
+        // says exactly what is wrong locally, and "JWT_SECRET must be set and at
+        // least 32 characters long" is the entire diagnosis - a bare "HTTP 500" is
+        // not something anyone can act on.
+        const detail = (await res.text().catch(() => '')).slice(0, 140);
+        throw new Error(detail || `HTTP ${res.status}`);
+      }
       const data = await res.json();
       setQuestion(data?.question || '');
     } catch (err) {
       setQuestion('');
-      // The usual cause is a missing or too-short JWT_SECRET, since that is what the
-      // captcha cookie is signed with. Say so rather than showing a bare number.
-      setError(`Could not load the security question (${err.message}).`);
+      setError(`Could not load the security question: ${err.message}`);
     } finally {
       setLoading(false);
     }

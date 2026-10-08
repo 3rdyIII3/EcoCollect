@@ -11,7 +11,7 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import bcrypt from 'bcryptjs';
-import { neon } from '@neondatabase/serverless';
+import { Pool } from '@neondatabase/serverless';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -26,11 +26,137 @@ if (!url) {
   process.exit(1);
 }
 
-const sql = neon(url);
+/**
+ * Runs SQL with $1-style parameters.
+ *
+ * Uses Pool rather than neon(). neon() in this driver version is a tagged-template
+ * function whose interpolated values become `$1` placeholders, so a plain SQL string
+ * passed through it is treated as a *parameter value*, not as SQL - it fails with
+ * `syntax error at or near "$1"`. Pool.query(text, params) takes the text as SQL and
+ * binds params properly, which is what every call site here needs.
+ */
+const pool = new Pool({ connectionString: url });
+
+const sql = {
+  async query(text, params = []) {
+    const result = await pool.query(text, params);
+    // Pool returns { rows, fields, ... }; the rest of this file expects just rows,
+    // which is the same shape neon() and PGlite hand back.
+    return result.rows ?? [];
+  },
+};
+
+/**
+ * Splits a SQL script into individual statements.
+ *
+ * Postgres rejects several commands in one prepared statement ("cannot insert multiple
+ * commands into a prepared statement"), so schema.sql - a script of DROP/CREATE TABLE,
+ * CREATE INDEX, FUNCTION and TRIGGER - has to be sent one statement at a time.
+ *
+ * The parser is deliberately literal-aware, because db/schema.sql contains constructs a
+ * naive split on ';' would destroy:
+ *
+ *   - `--` line comments, which carry no SQL and must not become statements. schema.sql
+ *     opens with a long comment block, and splitting naively sends comment text as SQL.
+ *   - 'single-quoted' literals, where '' is an escaped quote.
+ *   - "double-quoted" identifiers, where "" is an escaped quote.
+ *   - $$ ... $$ plpgsql bodies, which contain semicolons of their own. These must be
+ *     kept intact: a function body cut in half is a syntax error.
+ */
+function splitStatements(script) {
+  const statements = [];
+  let current = '';
+  let inSingle = false;
+  let inDouble = false;
+  let inDollar = false;
+  let inLineComment = false;
+  let dollarTag = '';
+
+  for (let i = 0; i < script.length; i += 1) {
+    const ch = script[i];
+    const next = script[i + 1];
+
+    // A line comment runs to the newline and is dropped entirely.
+    if (inLineComment) {
+      if (ch === '\n') inLineComment = false;
+      continue;
+    }
+
+    if (inDollar) {
+      // Inside $$ ... $$ (or $tag$ ... $tag$): only the closing tag matters.
+      if (ch === '$' && script.startsWith(dollarTag, i)) {
+        current += dollarTag;
+        i += dollarTag.length - 1;
+        inDollar = false;
+        continue;
+      }
+      current += ch;
+      continue;
+    }
+
+    if (inSingle) {
+      current += ch;
+      if (ch === "'") {
+        if (next === "'") { current += next; i += 1; }
+        else inSingle = false;
+      }
+      continue;
+    }
+
+    if (inDouble) {
+      current += ch;
+      if (ch === '"') {
+        if (next === '"') { current += next; i += 1; }
+        else inDouble = false;
+      }
+      continue;
+    }
+
+    // Not inside anything: recognise each construct that starts here.
+    if (ch === '-' && next === '-') { inLineComment = true; i += 1; continue; }
+    if (ch === "'") { inSingle = true; current += ch; continue; }
+    if (ch === '"') { inDouble = true; current += ch; continue; }
+    if (ch === '$') {
+      const m = /^\$[A-Za-z_0-9]*\$/.exec(script.slice(i));
+      if (m) {
+        dollarTag = m[0];
+        inDollar = true;
+        current += dollarTag;
+        i += dollarTag.length - 1;
+        continue;
+      }
+    }
+    if (ch === ';') {
+      const trimmed = current.trim();
+      if (trimmed) statements.push(trimmed);
+      current = '';
+      continue;
+    }
+
+    current += ch;
+  }
+
+  const tail = current.trim();
+  if (tail) statements.push(tail);
+  return statements;
+}
 
 console.log('Applying schema (this DROPS existing tables)…');
-await sql.query(await readFile(path.join(here, 'schema.sql'), 'utf8'));
-console.log('Schema applied.');
+const schemaScript = await readFile(path.join(here, 'schema.sql'), 'utf8');
+const statements = splitStatements(schemaScript);
+for (const [i, statement] of statements.entries()) {
+  try {
+    await sql.query(statement);
+  } catch (err) {
+    // Name the statement that failed - "syntax error" with no context is useless
+    // against a 190-line script.
+    const preview = statement.replace(/\s+/g, ' ').slice(0, 90);
+    console.error(`\nFailed on statement ${i + 1} of ${statements.length}:`);
+    console.error(`  ${preview}…`);
+    throw err;
+  }
+}
+console.log(`Schema applied (${statements.length} statements).`);
 
 if (!process.argv.includes('--seed')) {
   console.log('Done. Re-run with --seed to insert demo data.');

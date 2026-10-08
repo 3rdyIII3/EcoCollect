@@ -1,4 +1,4 @@
-import { neon } from '@neondatabase/serverless';
+import { Pool } from '@neondatabase/serverless';
 
 /**
  * Neon serverless driver.
@@ -6,7 +6,14 @@ import { neon } from '@neondatabase/serverless';
  * Uses Neon's HTTP transport rather than a WebSocket/pg Pool on purpose: serverless
  * functions are short-lived and horizontally scaled, so holding a TCP socket is
  * both unreliable (idle connections get dropped) and a connection-exhaustion risk.
- * The fetch driver is stateless and safe to use per-request.
+ *
+ * The driver is `Pool`, not `neon()`. In this version neon() is a tagged-template
+ * function whose interpolated values become `$1` placeholders, so a SQL string passed
+ * through it is treated as a parameter *value* rather than as SQL - every query here
+ * failed with `syntax error at or near "$1"`. Pool.query(text, params) treats the first
+ * argument as SQL and binds the second properly, which is what this codebase's queries
+ * need. It is also the shape PGlite provides, so the tests drive the real handlers
+ * unchanged.
  */
 let sql;
 let driverInjected = false;
@@ -17,7 +24,15 @@ export function db() {
     if (!url) {
       throw Object.assign(new Error('DATABASE_URL is not set'), { statusCode: 500 });
     }
-    sql = neon(url);
+    const pool = new Pool({ connectionString: url });
+    sql = {
+      async query(text, params = []) {
+        const result = await pool.query(text, params);
+        // Pool returns { rows, fields, ... }; callers expect the rows array directly,
+        // which is what neon() and PGlite both return.
+        return result.rows ?? [];
+      },
+    };
   }
   return sql;
 }

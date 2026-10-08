@@ -29,19 +29,23 @@ const BCRYPT_ROUNDS = 12;
  *
  * Length is the only requirement that reliably buys something - composition rules
  * ("must contain a symbol") reliably push people toward `Password1!`, which is
- * worse than a long passphrase. Blocked explicitly are the defaults this project
- * itself ships, since those are the ones an attacker tries first.
+ * worse than a long passphrase.
+ *
+ * The banned list catches the defaults this project itself ships, plus the handful of
+ * passwords any guessing script tries first. Matching is by substring rather than
+ * equality, because `admin12345678` and `admin1234` are exactly as guessable as
+ * `admin123` while an exact-match list would wave all three through.
  */
 const MIN_LENGTH = 12;
-const BANNED = new Set([
+const BANNED = [
   'admin123',
   'password',
-  'password123',
   'ecocollect',
-  'admin1234',
-  'qwerty123',
+  'qwerty',
+  'letmein',
+  'welcome',
   '123456789012',
-]);
+];
 
 export default withErrorHandling(async (req, res) => {
   const user = await requireAuth(req);
@@ -66,7 +70,7 @@ export default withErrorHandling(async (req, res) => {
       error: `The new password must be at least ${MIN_LENGTH} characters long.`,
     });
   }
-  if (BANNED.has(next.toLowerCase())) {
+  if (BANNED.some((bad) => next.toLowerCase().includes(bad))) {
     return send(res, 400, { error: 'That password is too common. Choose something else.' });
   }
   if (next === current) {

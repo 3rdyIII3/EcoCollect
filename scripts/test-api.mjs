@@ -31,6 +31,12 @@ await pglite.query('INSERT INTO users (username, password, full_name, role) VALU
 await pglite.query('INSERT INTO users (username, password, full_name, role) VALUES ($1,$2,$3,$4)',
   ['probe', await bcrypt.hash('probe-original-pw', 10), 'Probe Account', 'collector']);
 await pglite.query(`INSERT INTO collectors (user_id, employee_id, route) SELECT id,'EMP-9','Route Z' FROM users WHERE username='probe'`);
+// A fourth, never targeted by the throttle tests, so the "an unrelated account is
+// unaffected" assertions have somewhere to stand. The admin account cannot serve that
+// purpose: the throttle test deliberately fails several attempts against it, which
+// locks the per-account scope by design.
+await pglite.query('INSERT INTO users (username, password, full_name, role) VALUES ($1,$2,$3,$4)',
+  ['superv', await bcrypt.hash('supervpass', 10), 'Rosel Supervisor', 'supervisor']);
 await pglite.query(`INSERT INTO collectors (user_id, employee_id, route) SELECT id,'EMP-1','Route A' FROM users WHERE username='sad'`);
 await pglite.query(`INSERT INTO barangays (name, population, zone, qr_code) VALUES ('Poblacion',5000,'','BRG-TEST01'),('Sanito',0,'','BRG-TEST02')`);
 
@@ -393,18 +399,21 @@ check('known-weak password refused', r.status === 400, `got ${r.status}`);
 
 r = await call(handlers.password, {
   method: 'POST', cookies: pwSession, headers: { 'x-csrf-token': pwCsrf },
-  body: { current_password: 'collectme', new_password: 'collectme-again-please' },
-});
-check('new password identical to current refused', r.status === 400, `got ${r.status}`);
-
-r = await call(handlers.password, {
-  method: 'POST', cookies: pwSession, headers: { 'x-csrf-token': pwCsrf },
   body: { current_password: 'collectme', new_password: 'a-much-longer-passphrase' },
 });
 check('valid change accepted', r.status === 200, `${r.status} ${JSON.stringify(r.body)}`);
 
 r = await call(handlers.me, { cookies: pwSession });
 check('must_change_password cleared', r.body?.user?.must_change_password === false);
+
+/* Reusing the password you just set must be refused. Checked here rather than before
+   the change above, because that check needs a current password that is itself long
+   enough to clear the length rule - `collectme` is not. */
+r = await call(handlers.password, {
+  method: 'POST', cookies: pwSession, headers: { 'x-csrf-token': pwCsrf },
+  body: { current_password: 'a-much-longer-passphrase', new_password: 'a-much-longer-passphrase' },
+});
+check('new password identical to current refused', r.status === 400, `got ${r.status}`);
 
 const reloginCsrf = (await call(handlers.csrf)).body.csrfToken;
 const reloginCap = await call(handlers.captcha, { ip: '7.7.7.7', ua: 'pw-client' });
@@ -435,7 +444,12 @@ const probeSession = setCookies(probeLogin.headers);
 let oracleStatus = 0;
 for (let i = 0; i < 6; i += 1) {
   oracleStatus = (await call(handlers.password, {
-    method: 'POST', cookies: probeSession, headers: { 'x-csrf-token': probeSession.ecol_csrf },
+    // Its own ip + user agent on purpose. Without these the loop inherits the shared
+    // 1.2.3.4|test defaults, locks that client key, and every later password call that
+    // also omits ip/ua - including the "unrelated account is unaffected" checks - is
+    // then refused for a reason that has nothing to do with what they are asserting.
+    method: 'POST', ip: '6.6.6.6', ua: 'probe-client',
+    cookies: probeSession, headers: { 'x-csrf-token': probeSession.ecol_csrf },
     body: { current_password: `guess-${i}`, new_password: 'a-much-longer-passphrase' },
   })).status;
 }
@@ -447,20 +461,24 @@ r = await call(handlers.password, {
 });
 check('locked out even with the right current password', r.status === 429, `got ${r.status}`);
 
-/* A different address and account is unaffected by the above. */
+/* An account the throttle tests never targeted is unaffected. Deliberately not
+   `admin`: the throttle test above fails several attempts against it, so the
+   per-account scope is correctly locked and using it here would prove nothing. */
 const otherCsrf = (await call(handlers.csrf)).body.csrfToken;
 const otherCap = await call(handlers.captcha, { ip: '4.4.4.4', ua: 'other-user' });
 const otherLogin = await call(handlers.login, {
   method: 'POST', ip: '4.4.4.4', ua: 'other-user',
   cookies: { ...setCookies(otherCap.headers), ecol_csrf: otherCsrf },
   headers: { 'x-csrf-token': otherCsrf },
-  body: { username: 'admin', password: 'admin123', captcha: String(solve(otherCap.body.question)) },
+  body: { username: 'superv', password: 'supervpass', captcha: String(solve(otherCap.body.question)) },
 });
-check('an unrelated admin session is not throttled', otherLogin.status === 200, `got ${otherLogin.status}`);
+check('an unrelated account is not throttled', otherLogin.status === 200, `got ${otherLogin.status}`);
 const otherSession = setCookies(otherLogin.headers);
 r = await call(handlers.password, {
-  method: 'POST', cookies: otherSession, headers: { 'x-csrf-token': otherSession.ecol_csrf },
-  body: { current_password: 'admin123', new_password: 'another-long-passphrase' },
+  // Same ip + user agent as the login above, which is what a real client would send.
+  method: 'POST', ip: '4.4.4.4', ua: 'other-user',
+  cookies: otherSession, headers: { 'x-csrf-token': otherSession.ecol_csrf },
+  body: { current_password: 'supervpass', new_password: 'another-long-passphrase' },
 });
 check('and can still change its own password', r.status === 200, `got ${r.status}`);
 
@@ -468,12 +486,13 @@ check('and can still change its own password', r.status === 200, `got ${r.status
    token, so there is no body field here that could point it at another account. */
 r = await call(handlers.password, {
   method: 'POST', cookies: { ecol_csrf: changeCsrf }, headers: { 'x-csrf-token': changeCsrf },
-  body: { current_password: 'collectme', new_password: 'attacker-chosen-value', user_id: 1 },
+  body: { current_password: 'supervpass', new_password: 'attacker-chosen-value', user_id: 1 },
 });
 check('password change without a session -> 401', r.status === 401, `got ${r.status}`);
 
 r = await call(handlers.password, {
-  method: 'POST', cookies: otherSession, headers: { 'x-csrf-token': otherSession.ecol_csrf },
+  method: 'POST', ip: '4.4.4.4', ua: 'other-user',
+  cookies: otherSession, headers: { 'x-csrf-token': otherSession.ecol_csrf },
   body: { current_password: 'another-long-passphrase', new_password: 'yet-another-passphrase', user_id: 2 },
 });
 check('a user_id in the body is ignored, not honoured', r.status === 200, `got ${r.status}`);
