@@ -1,0 +1,44 @@
+{
+  "name": "ecocollect",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "EcoCollect - QR-Based Waste Collection Management System (React + Vercel)",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "vite",
+    "dev:full": "npm run build && node scripts/dev-server.mjs",
+    "build": "vite build",
+    "preview": "vite preview",
+    "db:migrate": "node db/migrate.mjs",
+    "db:hash": "node scripts/hash-password.mjs",
+    "test": "node scripts/check-api.mjs && node scripts/test-auth.mjs && node scripts/test-db.mjs && node scripts/test-api.mjs && node scripts/test-fullstack.mjs",
+    "test:api-load": "node scripts/check-api.mjs",
+    "test:auth": "node scripts/test-auth.mjs",
+    "test:db": "node scripts/test-db.mjs",
+    "test:handlers": "node scripts/test-api.mjs",
+    "test:full": "node scripts/test-fullstack.mjs"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^0.10.4",
+    "bcryptjs": "^2.4.3",
+    "bootstrap": "^5.3.3",
+    "bootstrap-icons": "^1.11.3",
+    "chart.js": "^4.4.7",
+    "jose": "^5.9.6",
+    "react": "^18.3.1",
+    "react-chartjs-2": "^5.2.0",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.28.0"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
+    "@vitejs/plugin-react": "^4.3.4",
+    "vite": "^5.4.11"
+  },
+  "allowScripts": {
+    "esbuild@0.21.5": true
+  }
+}
