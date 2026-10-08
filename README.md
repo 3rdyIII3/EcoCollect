@@ -18,12 +18,14 @@ Ported and working:
 | Dashboard | KPI tiles, 3 charts, waste-by-barangay and collector tables |
 | Collections | List, filters, pagination, create, delete |
 | Barangays | List, create, edit, view, deactivate/reactivate |
+| Users | Admin only — create accounts, change roles, reset passwords, activate/deactivate |
+| Rankings | Staff only — per-capita barangay ranking, overall or by waste stream |
+| Notifications | Staff only — inbox, mark read, archive, delete |
 
 Not ported yet, and deliberately absent from the navigation rather than shown as
-locked links: Collectors, Users, Schedules, QR Scanner, QR Codes, Dumping Reports,
-Notifications actions, Settings, Analytics, Rankings. A sidebar full of dead links to
-placeholder pages reads as a broken app, and each one only ever led to another page
-saying the same thing. See "Remaining work" below.
+locked links: Collectors, Schedules, QR Scanner, QR Codes, Dumping Reports,
+Analytics, Settings. A sidebar full of dead links to placeholder pages reads as a
+broken app. See "Remaining work" below.
 
 ---
 
